@@ -15,7 +15,7 @@ def convert(input_str):
 def main():
     res = requests.get("http://tunnel:4246/stats", timeout=5)
     converted = filter(lambda s: s, list(map(lambda s: convert(s), res.text.split('\n'))))
-    print('get ' + str(len(converted)) + ' metrics')
+    print('get ' + str(len(list(converted))) + ' metrics')
 
     payload = '\n'.join(converted)
 
