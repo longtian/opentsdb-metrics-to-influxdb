@@ -1,29 +1,49 @@
 import requests
 import time
+import os
+import logging
+import sys
 
 
-def convert(input_str):
-    splited = input_str.split()
-    if len(splited) < 4:
-        return None
+def querify(params):
+    if len(params) == 0:
+        return ''
+    tags = [k + '=' + v for (k, v) in params.items()]
 
-    (metricName, time, value, *tags) = splited
+    return ',' + ','.join(tags)
 
-    return metricName + ',' + ','.join(tags) + ' value=' + value + ' ' + time + '000000000'
+
+def convert(obj):
+    return '{metric}{tags} value={value} {timestamp}000000000'.format(
+        metric=obj['metric'],
+        timestamp=obj['timestamp'],
+        value=obj['value'],
+        tags=querify(obj['tags'])
+    )
 
 
 def main():
-    res = requests.get("http://tunnel:4246/stats", timeout=5)
-    converted = filter(lambda s: s, list(map(lambda s: convert(s), res.text.split('\n'))))
-    print('get ' + str(len(list(converted))) + ' metrics')
+    opentsdb_url = os.getenv('OPENTSDB_URL', None)
+    influxdb_url = os.getenv('INFLUXDB_URL', None)
 
-    payload = '\n'.join(converted)
+    if not opentsdb_url or not influxdb_url:
+        sys.exit()
 
-    d = requests.post('http://influxdb:8086/write?db=opentsdb', data=payload)
-    print(d.text)
+    res = requests.get(opentsdb_url, timeout=1)
+
+    payload_lines = [convert(item) for item in res.json()]
+    d = requests.post(influxdb_url, proxies={
+        "http": None
+    }, data='\n'.join(payload_lines))
+
+    logging.info('[%d] write %d records' % (d.status_code, len(payload_lines)))
 
 
 if __name__ == '__main__':
     while True:
-        main()
-        time.sleep(20)
+        try:
+            main()
+        except BaseException as e:
+            logging.error(e)
+        finally:
+            time.sleep(20)
