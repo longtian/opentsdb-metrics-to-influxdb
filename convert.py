@@ -1,4 +1,5 @@
 import requests
+import time
 
 
 def convert(input_str):
@@ -22,4 +23,6 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    while True:
+        main()
+        time.sleep(20)
