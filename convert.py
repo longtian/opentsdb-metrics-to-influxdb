@@ -12,7 +12,7 @@ def convert(input_str):
 
 
 def main():
-    res = requests.get("http://metabase:4246/stats")
+    res = requests.get("http://tunnel:4246/stats")
     converted = filter(lambda s: s, list(map(lambda s: convert(s), res.text.split('\n'))))
 
     payload = '\n'.join(converted)
