@@ -4,6 +4,8 @@ import os
 import logging
 import sys
 import raven
+import calendar
+from datetime import datetime
 
 # 生成 logger 对象
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +21,7 @@ if raven_sdn:
     )
 
 
-def querify(params):
+def querify(params, prefix=','):
     """
     把 {a:1,b:2} 转换成 ,a=1,b=1 的格式
     :param params: dict
@@ -29,7 +31,7 @@ def querify(params):
     if len(items) == 0:
         return ''
     tags = [str(k) + '=' + str(v) for (k, v) in items]
-    return ',' + ','.join(sorted(tags))
+    return prefix + ','.join(sorted(tags))
 
 
 def line(obj):
@@ -46,12 +48,41 @@ def line(obj):
     )
 
 
-def convert(obj):
+def now():
+    now = datetime.utcnow()
+    timestamp = int(calendar.timegm(now.timetuple()) * 1000 + now.microsecond / 1000)
+    return timestamp
+
+
+def line_region_client(obj):
+    values = {}
+    tags = {}
+
+    for (k, v) in obj.items():
+        if isinstance(v, str):
+            tags[k] = v
+        elif isinstance(v, bool):
+            pass
+        elif isinstance(v, int):
+            values[k] = v
+
+    return 'regionClient{tags} {value} {timestamp}000000'.format(
+        timestamp=now(),
+        value=querify(values, ''),
+        tags=querify(tags)
+    )
+
+
+def convert_stats(obj):
     """
     :param obj:
     :return:
     """
     return '\n'.join([line(item) for item in obj])
+
+
+def convert_region_clients(obj):
+    return '\n'.join([line_region_client(item) for item in obj])
 
 
 def pipe(opentsdb_url, influxdb_url, timeout):
@@ -60,19 +91,23 @@ def pipe(opentsdb_url, influxdb_url, timeout):
     :return:
     """
 
-    res = requests.get(opentsdb_url, timeout=timeout)
+    def write_data(data):
+        d = requests.post(influxdb_url, proxies={
+            "http": None
+        }, data=data)
+        status_code = d.status_code
 
-    d = requests.post(influxdb_url, proxies={
-        "http": None
-    }, data=convert(res.json()))
+        # http://opentsdb.net/docs/build/html/api_http/index.html#response-codes
+        if status_code in [200, 204]:
+            logger.info('[%d] pipe success' % d.status_code)
+        else:
+            logger.error('[%d] pipe error:\n%s' % (d.status_code, d.text))
 
-    status_code = d.status_code
+    res = requests.get(opentsdb_url + 'api/stats', timeout=timeout)
+    write_data(convert_stats(res.json()))
 
-    # http://opentsdb.net/docs/build/html/api_http/index.html#response-codes
-    if status_code in [200, 204]:
-        logger.info('[%d] pipe success' % d.status_code)
-    else:
-        logger.error('[%d] pipe error:\n%s' % (d.status_code, d.text))
+    rcs = requests.get(opentsdb_url + 'api/stats/region_clients', timeout=timeout)
+    write_data(convert_region_clients(rcs.json()))
 
 
 if __name__ == '__main__':
